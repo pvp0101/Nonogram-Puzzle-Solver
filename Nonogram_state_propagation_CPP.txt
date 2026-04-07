@@ -1,0 +1,355 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <numeric>
+
+class NonogramSolver {
+private:
+    struct State {
+        std::vector<std::vector<int>> table;  // -1: cross, 0: blank, 1: black
+        bool booleanChange;
+        std::vector<std::vector<int>> rowClues;
+        std::vector<std::vector<int>> colClues;
+        int rowColLength;
+        
+        State(int size) : rowColLength(size), booleanChange(false) {
+            table.resize(size, std::vector<int>(size, 0));
+            rowClues.resize(size);
+            colClues.resize(size);
+        }
+    };
+    
+    State gameState;
+    
+public:
+    NonogramSolver(int size, const std::vector<std::vector<int>>& rowClues, 
+                   const std::vector<std::vector<int>>& colClues) 
+        : gameState(size) {
+        gameState.rowClues = rowClues;
+        gameState.colClues = colClues;
+    }
+    
+    // Calculate sum of clues + number of clues - 1
+    int rowColSum(const std::vector<int>& clues) {
+        if (clues.empty()) return 0;
+        return std::accumulate(clues.begin(), clues.end(), 0) + clues.size() - 1;
+    }
+    
+    // Generate all possible arrangements for a line given constraints
+    std::vector<std::vector<int>> generateArrangements(const std::vector<int>& clues, 
+                                                      const std::vector<int>& currentLine) {
+        std::vector<std::vector<int>> arrangements;
+        int lineLength = currentLine.size();
+        
+        if (clues.empty()) {
+            // No clues means all crosses
+            std::vector<int> arrangement(lineLength, -1);
+            if (isValidArrangement(arrangement, currentLine)) {
+                arrangements.push_back(arrangement);
+            }
+            return arrangements;
+        }
+        
+        int minLength = rowColSum(clues);
+        int reqCross = lineLength - minLength;
+        
+        // Generate all possible positions for the clues
+        generateArrangementsRecursive(clues, 0, std::vector<int>(lineLength, -1), 
+                                    0, arrangements, currentLine);
+        
+        return arrangements;
+    }
+    
+    void generateArrangementsRecursive(const std::vector<int>& clues, int clueIndex,
+                                     std::vector<int> current, int pos,
+                                     std::vector<std::vector<int>>& arrangements,
+                                     const std::vector<int>& currentLine) {
+        if (clueIndex == clues.size()) {
+            if (isValidArrangement(current, currentLine)) {
+                arrangements.push_back(current);
+            }
+            return;
+        }
+        
+        int remaining = clues.size() - clueIndex - 1;
+        int minSpaceNeeded = 0;
+        for (int i = clueIndex + 1; i < clues.size(); i++) {
+            minSpaceNeeded += clues[i] + 1;
+        }
+        
+        int maxStartPos = current.size() - clues[clueIndex] - minSpaceNeeded;
+        
+        for (int startPos = pos; startPos <= maxStartPos; startPos++) {
+            std::vector<int> temp = current;
+            
+            // Place the current clue
+            for (int i = 0; i < clues[clueIndex]; i++) {
+                temp[startPos + i] = 1;
+            }
+            
+            // Add separator if not the last clue
+            int nextPos = startPos + clues[clueIndex];
+            if (clueIndex < clues.size() - 1 && nextPos < temp.size()) {
+                temp[nextPos] = -1;
+                nextPos++;
+            }
+            
+            generateArrangementsRecursive(clues, clueIndex + 1, temp, nextPos,
+                                        arrangements, currentLine);
+        }
+    }
+    
+    bool isValidArrangement(const std::vector<int>& arrangement, 
+                          const std::vector<int>& currentLine) {
+        for (int i = 0; i < arrangement.size(); i++) {
+            if (currentLine[i] != 0 && currentLine[i] != arrangement[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    // Find common elements across all valid arrangements
+    std::vector<int> findCommonElements(const std::vector<std::vector<int>>& arrangements) {
+        if (arrangements.empty()) {
+            return std::vector<int>();
+        }
+        
+        std::vector<int> common = arrangements[0];
+        
+        for (int pos = 0; pos < common.size(); pos++) {
+            for (int arr = 1; arr < arrangements.size(); arr++) {
+                if (arrangements[arr][pos] != common[pos]) {
+                    common[pos] = 0; // Mark as uncertain
+                    break;
+                }
+            }
+        }
+        
+        return common;
+    }
+    
+    // Update state for a specific row or column
+    void updateState(int index, bool isRow, const std::vector<int>& newLine) {
+        bool changed = false;
+        
+        for (int i = 0; i < newLine.size(); i++) {
+            int& cell = isRow ? gameState.table[index][i] : gameState.table[i][index];
+            
+            if (cell == 0 && newLine[i] != 0) {
+                cell = newLine[i];
+                changed = true;
+            }
+        }
+        
+        if (changed) {
+            gameState.booleanChange = true;
+        }
+    }
+    
+    // Process a single row or column
+    void processLine(int index, bool isRow) {
+        std::vector<int> currentLine;
+        std::vector<int> clues;
+        
+        if (isRow) {
+            currentLine = gameState.table[index];
+            clues = gameState.rowClues[index];
+        } else {
+            currentLine.resize(gameState.rowColLength);
+            for (int i = 0; i < gameState.rowColLength; i++) {
+                currentLine[i] = gameState.table[i][index];
+            }
+            clues = gameState.colClues[index];
+        }
+        
+        auto arrangements = generateArrangements(clues, currentLine);
+        
+        if (arrangements.empty()) {
+            std::cout << "Error: No valid arrangements found for " 
+                      << (isRow ? "row" : "column") << " " << index << std::endl;
+            return;
+        }
+        
+        auto commonElements = findCommonElements(arrangements);
+        updateState(index, isRow, commonElements);
+    }
+    
+    // Check if puzzle is solved
+    bool isSolved() {
+        for (int i = 0; i < gameState.rowColLength; i++) {
+            for (int j = 0; j < gameState.rowColLength; j++) {
+                if (gameState.table[i][j] == 0) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+    
+    // Check if all clues are satisfied
+    bool areCluesSatisfied() {
+        // Check rows
+        for (int i = 0; i < gameState.rowColLength; i++) {
+            if (!isLineSatisfied(gameState.table[i], gameState.rowClues[i])) {
+                return false;
+            }
+        }
+        
+        // Check columns
+        for (int j = 0; j < gameState.rowColLength; j++) {
+            std::vector<int> column;
+            for (int i = 0; i < gameState.rowColLength; i++) {
+                column.push_back(gameState.table[i][j]);
+            }
+            if (!isLineSatisfied(column, gameState.colClues[j])) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    bool isLineSatisfied(const std::vector<int>& line, const std::vector<int>& clues) {
+        std::vector<int> blocks;
+        int currentBlock = 0;
+        
+        for (int cell : line) {
+            if (cell == 1) {
+                currentBlock++;
+            } else if (currentBlock > 0) {
+                blocks.push_back(currentBlock);
+                currentBlock = 0;
+            }
+        }
+        
+        if (currentBlock > 0) {
+            blocks.push_back(currentBlock);
+        }
+        
+        return blocks == clues;
+    }
+    
+    // Main solving function
+    bool solve() {
+        int maxIterations = 100;
+        int iteration = 0;
+        
+        while (iteration < maxIterations) {
+            gameState.booleanChange = false;
+            
+            // Process all rows
+            for (int i = 0; i < gameState.rowColLength; i++) {
+                processLine(i, true);
+            }
+            
+            // Process all columns
+            for (int i = 0; i < gameState.rowColLength; i++) {
+                processLine(i, false);
+            }
+            
+            // Check if solved
+            if (isSolved() && areCluesSatisfied()) {
+                std::cout << "Nonogram solved successfully!" << std::endl;
+                return true;
+            }
+            
+            // If no changes were made, we're stuck
+            if (!gameState.booleanChange) {
+                if (isSolved()) {
+                    std::cout << "Nonogram solved successfully!" << std::endl;
+                    return true;
+                } else {
+                    std::cout << "Nonogram cannot be solved with current constraints." << std::endl;
+                    return false;
+                }
+            }
+            
+            iteration++;
+        }
+        
+        std::cout << "Maximum iterations reached. Solution incomplete." << std::endl;
+        return false;
+    }
+    
+    // Print the current state
+    void printState() {
+        std::cout << "\nCurrent state:" << std::endl;
+        for (int i = 0; i < gameState.rowColLength; i++) {
+            for (int j = 0; j < gameState.rowColLength; j++) {
+                char symbol;
+                switch (gameState.table[i][j]) {
+                    case -1: symbol = 'X'; break;  // Cross
+                    case 0:  symbol = '?'; break;  // Unknown
+                    case 1:  symbol = '#'; break;  // Black
+                    default: symbol = '?'; break;
+                }
+                std::cout << symbol << " ";
+            }
+            std::cout << std::endl;
+        }
+        std::cout << std::endl;
+    }
+};
+
+// Example usage
+int main() {
+    // Example 5x5 Nonogram
+    std::vector<std::vector<int>> rowClues = {
+        {5},    // Row 0: 2 blacks, gap, 1 black
+        {2,5},    // Row 1: 1 black, gap, 1 black
+        {2,3,3},       // Row 2: 5 consecutive blacks
+        {5,2},    // Row 3: 1 black, gap, 1 black
+        {4},
+        {3},
+        {2,3},
+        {2,4},
+        {1,3},
+        {1}     // Row 4: 2 blacks, gap, 1 black
+    };
+    
+    std::vector<std::vector<int>> colClues = {
+        {3, 3},    // Col 0
+        {7},    // Col 1
+        {3},       // Col 2
+        {1, 4},    // Col 3
+        {5} ,
+        {3,},
+        {2,1},
+        {3,3},
+        {3,3},
+        {2,4}
+    };
+    
+    NonogramSolver solver(10, rowClues, colClues);
+    
+    std::cout << "Starting Nonogram solution..." << std::endl;
+    std::cout << "Row clues:" << std::endl;
+    for (int i = 0; i < rowClues.size(); i++) {
+        std::cout << "Row " << i << ": ";
+        for (int clue : rowClues[i]) {
+            std::cout << clue << " ";
+        }
+        std::cout << std::endl;
+    }
+    
+    std::cout << "\nColumn clues:" << std::endl;
+    for (int i = 0; i < colClues.size(); i++) {
+        std::cout << "Col " << i << ": ";
+        for (int clue : colClues[i]) {
+            std::cout << clue << " ";
+        }
+        std::cout << std::endl;
+    }
+    
+    solver.printState();
+    
+    if (solver.solve()) {
+        solver.printState();
+    } else {
+        std::cout << "Failed to solve the nonogram." << std::endl;
+        solver.printState();
+    }
+    
+    return 0;
+}
